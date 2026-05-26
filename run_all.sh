@@ -19,12 +19,12 @@ make
 # NASTAVITVE MERITEV
 # ==========================================
 
-PROGRAM_NAME="1_row_wise"
+PROGRAM_NAME="1_row_wise_optimized"
 
 RUNS=1
 STEPS=100
 
-GRID_SIZES=(1024)
+GRID_SIZES=(4096)
 PROCESS_COUNTS=(1 2 4 16 32)
 
 MAX_PROCS=$SLURM_NTASKS

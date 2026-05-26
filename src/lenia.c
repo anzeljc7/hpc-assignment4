@@ -11,22 +11,22 @@
 // Uncomment to generate gif animation
 // #define GENERATE_GIF
 
-// Function to calculate Gaussian
+#define EMPTY_THRESHOLD 1e-6
+
 static inline double gauss(double x, double mu, double sigma)
 {
-    return exp(-0.5 * pow((x - mu) / sigma, 2));
+    double diff = (x - mu) / sigma;
+    return exp(-0.5 * diff * diff);
 }
 
-// Function for growth criteria
 double growth_lenia(double u)
 {
-    double mu = 0.15;
-    double sigma = 0.015;
+    const double mu = 0.15;
+    const double sigma = 0.015;
 
-    return -1 + 2 * gauss(u, mu, sigma);
+    return -1.0 + 2.0 * gauss(u, mu, sigma);
 }
 
-// Clip value to [0, 1]
 static inline double clip01(double x)
 {
     if (x < 0.0) return 0.0;
@@ -34,100 +34,118 @@ static inline double clip01(double x)
     return x;
 }
 
-// Wrap index for periodic boundary conditions
-static inline unsigned int wrap_index(int idx, unsigned int size)
+// Ker so odmiki pri kernelu vedno samo v območju [-radius, size + radius],
+// ne rabimo počasnega modulo operatorja.
+static inline unsigned int wrap_index_fast(int idx, unsigned int size)
 {
-    int result = idx % (int)size;
-
-    if (result < 0) {
-        result += size;
+    if (idx < 0) {
+        idx += (int)size;
+    } else if (idx >= (int)size) {
+        idx -= (int)size;
     }
 
-    return (unsigned int)result;
+    return (unsigned int)idx;
 }
 
-// Function to generate convolution kernel
 double *generate_kernel(double *K, const unsigned int size)
 {
-    double mu = 0.5;
-    double sigma = 0.15;
-    int r = size / 2;
+    const double mu = 0.5;
+    const double sigma = 0.15;
+    const int r = (int)size / 2;
+
     double sum = 0.0;
 
-    if (K != NULL) {
-        for (int y = -r; y < r; y++) {
-            for (int x = -r; x < r; x++) {
-                double distance = sqrt((1 + x) * (1 + x) + (1 + y) * (1 + y)) / r;
+    for (int y = -r; y < r; y++) {
+        for (int x = -r; x < r; x++) {
+            const unsigned int idx = (unsigned int)((y + r) * (int)size + (x + r));
 
-                K[(y + r) * size + x + r] = gauss(distance, mu, sigma);
+            const double dx = (double)(1 + x);
+            const double dy = (double)(1 + y);
+            const double distance = sqrt(dx * dx + dy * dy) / (double)r;
 
-                if (distance > 1.0) {
-                    K[(y + r) * size + x + r] = 0.0;
-                }
-
-                sum += K[(y + r) * size + x + r];
+            if (distance > 1.0) {
+                K[idx] = 0.0;
+            } else {
+                K[idx] = gauss(distance, mu, sigma);
             }
-        }
 
-        // Normalize
-        for (unsigned int y = 0; y < size; y++) {
-            for (unsigned int x = 0; x < size; x++) {
-                K[y * size + x] /= sum;
-            }
+            sum += K[idx];
         }
+    }
+
+    for (unsigned int i = 0; i < size * size; i++) {
+        K[i] /= sum;
     }
 
     return K;
 }
 
-// Izracun zacetne vrstice za posamezen rank
 static unsigned int get_start_row(int rank, int procs, unsigned int rows)
 {
-    unsigned int base = rows / procs;
-    unsigned int rem = rows % procs;
+    unsigned int base = rows / (unsigned int)procs;
+    unsigned int rem = rows % (unsigned int)procs;
 
-    return rank * base + (rank < (int)rem ? rank : rem);
+    return (unsigned int)rank * base + ((unsigned int)rank < rem ? (unsigned int)rank : rem);
 }
 
-// Izracun stevila vrstic za posamezen rank
 static unsigned int get_local_rows(int rank, int procs, unsigned int rows)
 {
-    unsigned int base = rows / procs;
-    unsigned int rem = rows % procs;
+    unsigned int base = rows / (unsigned int)procs;
+    unsigned int rem = rows % (unsigned int)procs;
 
-    return base + (rank < (int)rem ? 1 : 0);
+    return base + ((unsigned int)rank < rem ? 1u : 0u);
 }
 
-// Local convolution: proces izracuna samo svoje vrstice [start_row, start_row + local_rows)
-static void convolve2d_local(
-    double *local_result,
+// Združena konvolucija + posodobitev.
+// Ne shranjujemo več tmp_local matrike.
+static void compute_next_local(
+    double *next_local,
     const double *world,
     const double *kernel,
     const unsigned int rows,
     const unsigned int cols,
     const unsigned int kernel_size,
     const unsigned int start_row,
-    const unsigned int local_rows
+    const unsigned int local_rows,
+    const double dt
 ) {
-    int radius = kernel_size / 2;
+    const int radius = (int)kernel_size / 2;
 
     for (unsigned int local_i = 0; local_i < local_rows; local_i++) {
-        unsigned int global_i = start_row + local_i;
+        const unsigned int global_i = start_row + local_i;
 
         for (unsigned int j = 0; j < cols; j++) {
             double sum = 0.0;
 
             for (unsigned int ki = 0; ki < kernel_size; ki++) {
-                unsigned int ii = wrap_index((int)global_i - radius + (int)ki, rows);
+                const unsigned int ii =
+                    wrap_index_fast((int)global_i - radius + (int)ki, rows);
+
+                const double *world_row = &world[ii * cols];
+                const double *kernel_row = &kernel[ki * kernel_size];
 
                 for (unsigned int kj = 0; kj < kernel_size; kj++) {
-                    unsigned int jj = wrap_index((int)j - radius + (int)kj, cols);
+                    const unsigned int jj =
+                        wrap_index_fast((int)j - radius + (int)kj, cols);
 
-                    sum += kernel[ki * kernel_size + kj] * world[ii * cols + jj];
+                    sum += kernel_row[kj] * world_row[jj];
                 }
             }
 
-            local_result[local_i * cols + j] = sum;
+            const unsigned int local_idx = local_i * cols + j;
+            const unsigned int global_idx = global_i * cols + j;
+
+            double new_value;
+
+            // Če ni aktivne okolice, je growth praktično -1,
+            // zato preskočimo drag exp().
+            if (sum < EMPTY_THRESHOLD) {
+                new_value = world[global_idx] - dt;
+            } else {
+                new_value = world[global_idx] + dt * growth_lenia(sum);
+            }
+
+            next_local[local_idx] = clip01(new_value);
         }
     }
 }
@@ -145,7 +163,6 @@ static void add_gif_frame(ge_GIF *gif, const double *world, unsigned int rows, u
 }
 #endif
 
-// Function to evolve Lenia
 double *evolve_lenia(
     const unsigned int rows,
     const unsigned int cols,
@@ -160,25 +177,22 @@ double *evolve_lenia(
     MPI_Comm_rank(MPI_COMM_WORLD, &myid);
     MPI_Comm_size(MPI_COMM_WORLD, &procs);
 
-    unsigned int start_row = get_start_row(myid, procs, rows);
-    unsigned int local_rows = get_local_rows(myid, procs, rows);
-    unsigned int local_count = local_rows * cols;
+    const unsigned int start_row = get_start_row(myid, procs, rows);
+    const unsigned int local_rows = get_local_rows(myid, procs, rows);
+    const unsigned int local_count = local_rows * cols;
 
-    // Allocate memory
     double *kernel = (double *)calloc(kernel_size * kernel_size, sizeof(double));
     double *world = (double *)calloc(rows * cols, sizeof(double));
-
-    // Lokalna polja za trenutni proces
-    double *tmp_local = (double *)calloc(local_count > 0 ? local_count : 1, sizeof(double));
+    double *next_world = (double *)calloc(rows * cols, sizeof(double));
     double *next_local = (double *)calloc(local_count > 0 ? local_count : 1, sizeof(double));
 
-    int *recv_counts = (int *)malloc(procs * sizeof(int));
-    int *displs = (int *)malloc(procs * sizeof(int));
+    int *recv_counts = (int *)malloc((size_t)procs * sizeof(int));
+    int *displs = (int *)malloc((size_t)procs * sizeof(int));
 
     if (
         kernel == NULL ||
         world == NULL ||
-        tmp_local == NULL ||
+        next_world == NULL ||
         next_local == NULL ||
         recv_counts == NULL ||
         displs == NULL
@@ -187,21 +201,18 @@ double *evolve_lenia(
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
-    // Prepare counts and displacements for MPI_Allgatherv
     for (int p = 0; p < procs; p++) {
-        unsigned int p_start = get_start_row(p, procs, rows);
-        unsigned int p_rows = get_local_rows(p, procs, rows);
+        const unsigned int p_start = get_start_row(p, procs, rows);
+        const unsigned int p_rows = get_local_rows(p, procs, rows);
 
         recv_counts[p] = (int)(p_rows * cols);
         displs[p] = (int)(p_start * cols);
     }
 
-    // Generate convolution kernel
-    kernel = generate_kernel(kernel, kernel_size);
+    generate_kernel(kernel, kernel_size);
 
-    // Place orbiums.
-    // Za osnovno verzijo jih postavimo na vseh procesih enako,
-    // zato ne potrebujemo zacetnega Scatter.
+    // Za basic MPI verzijo vsak proces pripravi enako začetno stanje.
+    // Zato ne potrebujemo scatterja.
     for (unsigned int o = 0; o < num_orbiums; o++) {
         world = place_orbium(
             world,
@@ -231,46 +242,34 @@ double *evolve_lenia(
     }
 #endif
 
-    // Lenia simulation
     for (unsigned int step = 0; step < steps; step++) {
-
-        // 1. Vsak proces izracuna konvolucijo samo za svoje vrstice
-        convolve2d_local(
-            tmp_local,
+        compute_next_local(
+            next_local,
             world,
             kernel,
             rows,
             cols,
             kernel_size,
             start_row,
-            local_rows
+            local_rows,
+            dt
         );
 
-        // 2. Vsak proces posodobi samo svoje vrstice
-        for (unsigned int local_i = 0; local_i < local_rows; local_i++) {
-            unsigned int global_i = start_row + local_i;
-
-            for (unsigned int j = 0; j < cols; j++) {
-                unsigned int local_idx = local_i * cols + j;
-                unsigned int global_idx = global_i * cols + j;
-
-                next_local[local_idx] =
-                    clip01(world[global_idx] + dt * growth_lenia(tmp_local[local_idx]));
-            }
-        }
-
-        // 3. Vsi procesi si izmenjajo izracunane vrstice.
-        // Po tem ima vsak proces celoten world za naslednji korak.
         MPI_Allgatherv(
             next_local,
             (int)local_count,
             MPI_DOUBLE,
-            world,
+            next_world,
             recv_counts,
             displs,
             MPI_DOUBLE,
             MPI_COMM_WORLD
         );
+
+        // O(1) zamenjava kazalcev namesto kopiranja cele matrike.
+        double *tmp = world;
+        world = next_world;
+        next_world = tmp;
 
 #ifdef GENERATE_GIF
         if (myid == 0) {
@@ -286,7 +285,7 @@ double *evolve_lenia(
 #endif
 
     free(kernel);
-    free(tmp_local);
+    free(next_world);
     free(next_local);
     free(recv_counts);
     free(displs);
