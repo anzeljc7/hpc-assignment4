@@ -19,7 +19,7 @@ make
 # NASTAVITVE MERITEV
 # ==========================================
 
-PROGRAM_NAME="lenia_starter" # Ime za datoteke in podmapo
+PROGRAM_NAME="1_row_wise" # Ime za datoteke in podmapo
 
 RUNS=5                  # Število ponovitev za povprečje
 N=128                   # TUKAJ ROČNO SPREMENIŠ VELIKOST (128, 512, 1024, 2048, 4096)
