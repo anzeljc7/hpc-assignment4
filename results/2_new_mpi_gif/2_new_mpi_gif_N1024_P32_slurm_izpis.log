@@ -1,0 +1,16 @@
+rm -f gifenc.o lenia.o main.o orbium.o lenia.out
+mpicc -O3 -Wall  -c -o gifenc.o src/gifenc.c
+mpicc -O3 -Wall  -c -o lenia.o src/lenia.c
+mpicc -O3 -Wall  -c -o main.o src/main.c
+mpicc -O3 -Wall  -c -o orbium.o src/orbium.c
+mpicc -O3 -Wall gifenc.o lenia.o main.o orbium.o -o lenia.out  -lm
+Začenjam MPI meritve z 32 procesi...
+Testiram mrežo: 1024x1024
+Število korakov: 100
+ Zagon 1/1
+ --> Čas:  5.576627 s
+ -------------------------------------------------
+ Povprečje za N=1024  P=32  =  5.576627 s
+ -------------------------------------------------
+
+Meritve za N=1024 in P=32 so končane! Rezultati so v mapi 'results/2_new_mpi_gif/'.
