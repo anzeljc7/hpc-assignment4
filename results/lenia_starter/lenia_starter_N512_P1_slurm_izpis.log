@@ -1,0 +1,16 @@
+rm -f gifenc.o lenia.o main.o orbium.o lenia.out
+mpicc -O3 -Wall  -c -o gifenc.o src/gifenc.c
+mpicc -O3 -Wall  -c -o lenia.o src/lenia.c
+mpicc -O3 -Wall  -c -o main.o src/main.c
+mpicc -O3 -Wall  -c -o orbium.o src/orbium.c
+mpicc -O3 -Wall gifenc.o lenia.o main.o orbium.o -o lenia.out  -lm
+Začenjam MPI meritve z 1 procesi...
+Testiram mrežo: 512x512
+Število korakov: 100
+ Zagon 1/1
+ --> Čas: 77.909202 s
+ -------------------------------------------------
+ Povprečje za N=512   P=1   = 77.909202 s
+ -------------------------------------------------
+
+Meritve za N=512 in P=1 so končane! Rezultati so v mapi 'results/lenia_starter/'.

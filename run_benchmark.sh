@@ -2,11 +2,11 @@
 
 #SBATCH --reservation=fri
 #SBATCH --job-name=lenia_mpi
-#SBATCH --ntasks-per-node=32
+#SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --output=slurm_temp_%j.log
 #SBATCH --hint=nomultithread
-#SBATCH --time=00:15:00
+#SBATCH --time=1:15:00
 
 # LOAD MODULES
 module load OpenMPI
@@ -19,7 +19,7 @@ make
 # NASTAVITVE MERITEV
 # ==========================================
 
-PROGRAM_NAME="2_new_mpi_gif" # Ime za datoteke in podmapo
+PROGRAM_NAME="lenia_starter" # Ime za datoteke in podmapo
 
 RUNS=1                  # Število ponovitev za povprečje
 N=1024                   # TUKAJ ROČNO SPREMENIŠ VELIKOST (128, 512, 1024, 2048, 4096)
