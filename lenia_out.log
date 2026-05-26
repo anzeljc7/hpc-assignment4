@@ -1,0 +1,7 @@
+make: 'lenia.out' is up to date.
+Hello from process 0 of 2 in node wn101.arnes.si
+Grid size: 128x128
+Steps: 100
+MPI processes: 2
+Hello from process 1 of 2 in node wn101.arnes.si
+Execution time: 4.881946
